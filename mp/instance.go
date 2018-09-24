@@ -50,8 +50,10 @@ func (i *Instance) GarbageCollector() {
 
 		for key, client := range i.Clients {
 			if time.Now().Sub(client.LastPacketTime).Seconds() > 5 {
-				delete(client.session.Clients, client.SessionSlot)
-				client.session.ClientCount--
+				if client.session != nil {
+					delete(client.session.Clients, client.SessionSlot)
+					client.session.ClientCount--
+				}
 
 				delete(i.Clients, key)
 

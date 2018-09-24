@@ -18,7 +18,7 @@ func CreateSession(sessionID uint32, clientCount int) *Session {
 		ClientCount: 0,
 		Clients:     make(map[int]*Client, clientCount),
 		SyncCount:   0,
-		SyncCounter: 1,
+		SyncCounter: 0,
 		Running:     false,
 	}
 

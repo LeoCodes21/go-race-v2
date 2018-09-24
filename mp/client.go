@@ -5,6 +5,8 @@ import (
 	"time"
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"encoding/hex"
 )
 
 type SyncState uint
@@ -14,6 +16,11 @@ const (
 	SyncStateStart SyncState = 1
 	SyncStateSync  SyncState = 2
 )
+
+type ClientPacket struct {
+	Sequence uint16
+	Data     []SubPacket
+}
 
 // Represents a player connected to the server.
 type Client struct {
@@ -28,6 +35,7 @@ type Client struct {
 	SessionSlot     int
 	ControlSequence uint16
 	RaceSequence    uint16
+	Buffer          []ClientPacket
 
 	session  *Session
 	instance *Instance
@@ -39,6 +47,7 @@ func CreateClient(addr *net.UDPAddr, connection *net.UDPConn, helloTime uint16, 
 		HelloTime:    helloTime,
 		CreationTime: creationTime,
 		Connection:   connection,
+		Buffer:       make([]ClientPacket, 0),
 		instance:     instance,
 	}
 }
@@ -65,6 +74,9 @@ func (c *Client) GetTimeDiff() uint16 {
 
 // Processes an incoming packet.
 func (c *Client) ProcessPacket(data []byte) {
+	fmt.Printf("DEBUG: Client %d is processing packet (%d bytes):\n", c.Address.Port, len(data))
+	fmt.Println(hex.Dump(data))
+
 	c.Ping = uint(time.Now().Sub(c.LastPacketTime).Seconds() * 1000)
 	c.LastPacketTime = time.Now()
 
@@ -115,8 +127,8 @@ func (c *Client) SendPlayerData(data []SubPacket, fullData []byte, client *Clien
 	buf.WriteByte(0x01)                                      // 0
 	buf.WriteByte(byte(client.SessionSlot))                  // 1
 	binary.Write(buf, binary.BigEndian, c.GetRaceSequence()) // 2, 3
-	//buf.Write([]byte{0xff, 0xff, 0xff, 0xff}) // 4, 5, 6, 7
-	buf.Write(fullData[6:10])
+	buf.Write(fullData[6:8])                                 // sequence
+	buf.Write(fullData[8:10])
 
 	for _, p := range data {
 		body := clone(p.Body)
@@ -200,9 +212,15 @@ func sendSyncStart(client *Client) {
 	packet.Counter = client.GetControlSequence()
 	packet.TypeSRV = 0x02
 	packet.Time = client.GetTimeDiff()
-	packet.HelloTime = client.HelloTime
-	packet.UnknownCounter = client.session.SyncCounter
-	packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+	packet.HelloTime = client.HelloTime - 50
+
+	if client.session.SyncCounter == 0 {
+		packet.UnknownCounter = 0xFFFF
+		packet.HandshakeSync = 0xFFFF
+	} else {
+		packet.UnknownCounter = client.session.SyncCounter
+		packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+	}
 
 	packet.Payload = ServerSyncStartPayload{}
 	packet.Payload.SessionID = client.session.ID
@@ -231,8 +249,14 @@ func sendSync(client *Client) {
 	packet.TypeSRV = 0x02
 	packet.Time = client.GetTimeDiff()
 	packet.HelloTime = client.HelloTime
-	packet.UnknownCounter = client.session.SyncCounter
-	packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+
+	if client.session.SyncCounter == 0 {
+		packet.UnknownCounter = 0xFFFF
+		packet.HandshakeSync = 0xFFFF
+	} else {
+		packet.UnknownCounter = client.session.SyncCounter
+		packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+	}
 
 	packet.Payload = ServerSyncPayload{}
 	packet.Payload.Type = 0x01
@@ -252,8 +276,13 @@ func sendKeepAlive(client *Client) {
 	packet.TypeSRV = 0x02
 	packet.Time = client.GetTimeDiff()
 	packet.HelloTime = client.HelloTime
-	packet.UnknownCounter = client.session.SyncCounter
-	packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+	if client.session.SyncCounter == 0 {
+		packet.UnknownCounter = 0xFFFF
+		packet.HandshakeSync = 0xFFFF
+	} else {
+		packet.UnknownCounter = client.session.SyncCounter
+		packet.HandshakeSync = 0xFFFF &^ (1 << (16 - packet.UnknownCounter))
+	}
 	packet.PacketEnd = 0xff
 	packet.Checksum = 0x01010101
 
@@ -271,4 +300,7 @@ func (c *Client) Send(data interface{}) {
 	binary.Write(buffer, binary.BigEndian, data)
 
 	c.Connection.WriteToUDP(buffer.Bytes(), c.Address)
+
+	fmt.Printf("DEBUG: Sent packet to client %d:\n", c.Address.Port)
+	fmt.Println(hex.Dump(buffer.Bytes()))
 }
