@@ -51,7 +51,7 @@ func (i *Instance) GarbageCollector() {
 		for key, client := range i.Clients {
 			if time.Now().Sub(client.LastPacketTime).Seconds() > 5 {
 				if client.session != nil {
-					delete(client.session.Clients, client.SessionSlot)
+					delete(client.session.Clients, client.sessionClient.Slot)
 					client.session.ClientCount--
 				}
 
@@ -95,7 +95,7 @@ func (i *Instance) RunPacketRead() {
 				srvHello := ServerHello{}
 				srvHello.TypeSRV = 0x01
 				srvHello.Counter = client.GetControlSequence()
-				srvHello.Time = client.GetTimeDiff() + 10
+				srvHello.Time = client.GetTimeDiff() + 30
 				srvHello.HelloTime = cliHello.HelloTime
 				srvHello.Checksum = 0x01010101
 
